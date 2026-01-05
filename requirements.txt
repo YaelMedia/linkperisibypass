@@ -1,0 +1,7 @@
+flask
+selenium
+webdriver-manager
+fake-useragent
+requests
+SpeechRecognition
+pydub
