@@ -9,7 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
 
-# SENİN WEBSHARE PROXY LİSTEN (IP:PORT:USER:PASS)
+# WEBSHARE PROXY LİSTEN
 PROXIES = [
     "142.111.48.253:7030:ghpgyqms:dbikygdy4w97",
     "23.95.150.145:6114:ghpgyqms:dbikygdy4w97",
@@ -24,11 +24,9 @@ PROXIES = [
 ]
 
 def get_proxy_auth_extension(proxy):
-    """Proxy kimlik doğrulaması için eklenti oluşturur"""
     try:
         ip, port, user, password = proxy.split(":")
     except: return None 
-
     manifest_json = """
     {
         "version": "1.0.0",
@@ -55,7 +53,6 @@ def get_proxy_auth_extension(proxy):
                 callbackFn, {urls: ["<all_urls>"]}, ['blocking']
     );
     """ % (ip, port, user, password)
-
     plugin_file = 'proxy_auth_plugin.zip'
     with zipfile.ZipFile(plugin_file, 'w') as zp:
         zp.writestr("manifest.json", manifest_json)
@@ -64,11 +61,16 @@ def get_proxy_auth_extension(proxy):
 
 def get_driver():
     options = Options()
-    # Render'da mecburi headless (ekransız) mod
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
+    
+    # --- ANTI-DETECT AYARLARI (HAYALET MOD) ---
+    # Bu ayarlar bot olduğunu gizler
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
     
     ua = UserAgent()
     options.add_argument(f"user-agent={ua.random}")
@@ -80,121 +82,121 @@ def get_driver():
             options.add_extension(plugin_file)
 
     driver = webdriver.Chrome(options=options)
+    
+    # Selenium izlerini sil
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    
     return driver
 
-# ==================== ÖZEL GÖREV FONKSİYONU ====================
+# ==================== GÖREV FONKSİYONU ====================
 def solve_verification_steps(driver):
-    """
-    1- Doğrulamayı Başlat -> 2- Google Araması -> 3- 15sn Bekle -> 4- Reklam Tıkla -> 5- Kontrol Et
-    """
     print("🕵️ GÖREV MODU BAŞLATILIYOR...")
     main_window = driver.current_window_handle
     
     try:
-        # ADIM 1: 'Doğrulamayı Başlat' Butonunu bul
-        # (Sitede bu yazıyı içeren butona tıklar)
-        try:
-            start_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Doğrulamayı Başlat')] | //a[contains(text(), 'Doğrulamayı Başlat')]"))
-            )
-            driver.execute_script("arguments[0].click();", start_btn)
-            print("✅ 'Doğrulamayı Başlat' tıklandı.")
-        except:
-            print("⚠️ Başlat butonu bulunamadı, devam ediliyor...")
-
-        # ADIM 2: Yeni Sekme Açıldı mı? (Google Araması)
-        time.sleep(5)
-        windows = driver.window_handles
-        if len(windows) > 1:
-            driver.switch_to.window(windows[-1]) # Yeni sekmeye geç
-            print("🔀 Google sayfasına geçildi.")
-            
-            # Google'daki ilk sonuca tıkla (Reklam olmayan)
-            try:
-                first_res = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.g a h3")))
-                parent = first_res.find_element(By.XPATH, "./..")
-                driver.execute_script("arguments[0].click();", parent)
-                print("✅ Siteye girildi.")
-            except:
-                print("⚠️ Google sonucu tıklanamadı.")
+        # 1. BAŞLAT BUTONU
+        # Farklı varyasyonları dene
+        xpaths = [
+            "//button[contains(text(), 'Doğrulamayı Başlat')]",
+            "//a[contains(text(), 'Doğrulamayı Başlat')]",
+            "//div[contains(@class, 'g-recaptcha')]", # Bazen direkt captcha vardır
+            "//iframe[contains(@src, 'recaptcha')]"
+        ]
         
-        # ADIM 3: Sitede 15 Saniye Gezin
-        print("⏳ 15 Saniye bekleniyor...")
-        for i in range(15):
-            driver.execute_script(f"window.scrollTo(0, {i * 50});") # Sayfayı kaydır
-            time.sleep(1)
+        found = False
+        for xpath in xpaths:
+            try:
+                btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                driver.execute_script("arguments[0].click();", btn)
+                print("✅ Başlat/Captcha tıklandı.")
+                found = True
+                break
+            except: continue
+            
+        if not found: print("⚠️ Başlat butonu bulunamadı.")
 
-        # ADIM 4: Reklam Bul ve Tıkla
-        print("🖱️ Reklam aranıyor...")
-        ad_clicked = False
+        time.sleep(5)
+
+        # 2. GOOGLE ARAMA (Sekme değiştiyse)
+        if len(driver.window_handles) > 1:
+            driver.switch_to.window(driver.window_handles[-1])
+            print("🔀 Yeni sekmeye geçildi.")
+            
+            # Google sonucuna tıkla
+            try:
+                res = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.g a")))
+                driver.execute_script("arguments[0].click();", res)
+                print("✅ Siteye girildi.")
+            except: 
+                print("⚠️ Google sonucu bulunamadı, belki direkt sitedeyiz.")
+
+        # 3. GEZİNME VE REKLAM
+        print("⏳ 10 Saniye geziniliyor...")
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+        time.sleep(5)
+        
+        # Reklam Tıkla
         try:
-            # Yaygın reklam kodlarını arar
-            ads = driver.find_elements(By.CSS_SELECTOR, "iframe[id*='google_ads'], ins.adsbygoogle")
+            ads = driver.find_elements(By.CSS_SELECTOR, "iframe, ins.adsbygoogle, a[href*='googleadservices']")
             if ads:
+                print(f"🖱️ {len(ads)} adet reklam/iframe bulundu. İlkine tıklanıyor.")
                 driver.execute_script("arguments[0].click();", ads[0])
-                print("✅ Reklama Tıklandı!")
-                ad_clicked = True
-                time.sleep(5) # Reklamda 5 sn bekle
-            else:
-                print("⚠️ Reklam bulunamadı.")
+                time.sleep(5)
         except: pass
 
-        # ADIM 5: Geri Dön ve Kontrol Et
+        # 4. GERİ DÖN VE KONTROL ET
         if len(driver.window_handles) > 1:
-            driver.close() # Reklam/Site sekmesini kapat
-            driver.switch_to.window(main_window) # Ana sayfaya dön
+            driver.close()
+            driver.switch_to.window(main_window)
         
-        print("🔙 Ana sayfaya dönüldü, 'Kontrol Et' aranıyor...")
+        print("🔙 Ana sayfaya dönüldü.")
         time.sleep(2)
         
         try:
-            check_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Kontrol Et')] | //a[contains(text(), 'Kontrol Et')]"))
-            )
-            driver.execute_script("arguments[0].click();", check_btn)
-            print("✅ 'Kontrol Et' butonuna basıldı!")
-            time.sleep(5) # Yönlendirme beklemesi
-        except:
-            print("⚠️ Kontrol Et butonu bulunamadı.")
+            chk = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Kontrol Et')] | //a[contains(text(), 'Kontrol Et')]")))
+            driver.execute_script("arguments[0].click();", chk)
+            print("✅ 'Kontrol Et' tıklandı.")
+            time.sleep(5)
+        except: print("⚠️ Kontrol Et butonu yok.")
 
     except Exception as e:
-        print(f"🔥 Görev Hatası: {e}")
-        try: driver.switch_to.window(main_window)
-        except: pass
+        print(f"Hata: {e}")
 
-# ==================== ANA ÇALIŞTIRICI ====================
+# ==================== ANA MOTOR ====================
 def start_bypass_process(url):
     driver = None
     try:
         driver = get_driver()
-        driver.set_page_load_timeout(60) # 60 saniye mühlet
+        driver.set_page_load_timeout(60)
         
-        print(f"🌍 Linke gidiliyor: {url}")
+        print(f"🌍 Link: {url}")
         driver.get(url)
         initial_url = driver.current_url
-        time.sleep(3)
+        time.sleep(5)
 
-        # Sayfa kaynağını alıp kontrol et: Görev var mı?
-        page_source = driver.page_source
-        if "Doğrulamayı Başlat" in page_source:
+        # GÖREV VAR MI?
+        src = driver.page_source
+        if "Doğrulamayı Başlat" in src or "recaptcha" in src:
             solve_verification_steps(driver)
         else:
-            # Görev yoksa normal butonları dene (Devam Et vb.)
+            # Genel Butonlar
             try:
-                btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Devam Et')] | //button[contains(text(), 'Devam Et')]")))
+                btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(),'Devam')]|//button[contains(text(),'Devam')]")))
                 driver.execute_script("arguments[0].click();", btn)
                 time.sleep(5)
             except: pass
 
         final_url = driver.current_url
-        print(f"🏁 Sonuç: {final_url}")
         
+        # HATA DURUMUNDA FOTOĞRAF ÇEK
         if final_url == initial_url or final_url == url:
-             return {"status": "error", "msg": "Bypass başarısız, sayfa değişmedi."}
+             driver.save_screenshot("debug_screenshot.png") # <--- FOTOĞRAF ÇEKİYORUZ
+             return {"status": "error", "msg": "Sayfa değişmedi. Hata fotosuna bak: /debug"}
 
         return {"status": "success", "url": final_url}
 
     except Exception as e:
+        if driver: driver.save_screenshot("debug_screenshot.png")
         return {"status": "error", "msg": str(e)}
     finally:
         if driver: 
